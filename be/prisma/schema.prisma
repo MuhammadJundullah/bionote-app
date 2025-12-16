@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(uuid())
+  name      String
+  email     String     @unique
+  password  String
+  role      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  employees Employee[]
+  created   Employee[] @relation("EmployeeCreatedBy")
+}
+
+model Employee {
+  id            String       @id @default(uuid())
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id])
+  nik           String       @unique
+  namaLengkap   String
+  tempatLahir   String
+  tanggalLahir  DateTime
+  jenisKelamin  String
+  alamat        String
+  foto          String?
+  createdById   String
+  createdBy     User         @relation("EmployeeCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  pendidikan    Pendidikan[]
+  pekerjaan     Pekerjaan[]
+  keluarga      Keluarga[]
+}
+
+model Pendidikan {
+  id           String   @id @default(uuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  jenjang      String
+  namaSekolah  String
+  tahunMasuk   String
+  tahunLulus   String?
+}
+
+model Pekerjaan {
+  id             String   @id @default(uuid())
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id])
+  namaPerusahaan String
+  jabatan        String
+  tahunMasuk     String
+  tahunKeluar    String?
+}
+
+model Keluarga {
+  id           String   @id @default(uuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  hubungan     String
+  nama         String
+  tanggalLahir DateTime?
+}
