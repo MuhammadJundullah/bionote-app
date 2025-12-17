@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../services/auth_service.dart';
 import '../services/employee_service.dart';
+import 'add_employee_page.dart';
+import 'employee_detail_page.dart';
+import 'settings_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -11,6 +15,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final _employeeService = const EmployeeService();
+  final _authService = const AuthService();
   final _searchController = TextEditingController();
   List<Map<String, dynamic>> _employees = [];
   bool _loading = true;
@@ -43,6 +48,14 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
+  PageRouteBuilder<T> _noAnimationRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (_, __, ___) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _employees.where((emp) {
@@ -55,8 +68,18 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(0),
-        child: Container(color: Colors.white),
+        preferredSize: const Size.fromHeight(56),
+        child: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          title: const Text(
+            'BioNote',
+            style: TextStyle(
+              color: Colors.black87,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
       ),
       body: SafeArea(
         child: Padding(
@@ -81,7 +104,10 @@ class _HomePageState extends State<HomePage> {
                     ? const Center(child: CircularProgressIndicator())
                     : _error != null
                         ? _ErrorState(message: _error!, onRetry: _load)
-                        : _EmployeeGrid(employees: filtered),
+                        : _EmployeeGrid(
+                            employees: filtered,
+                            onRefresh: _load,
+                          ),
               ),
             ],
           ),
@@ -89,7 +115,22 @@ class _HomePageState extends State<HomePage> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: 1,
-        onTap: (_) {},
+        type: BottomNavigationBarType.fixed,
+        onTap: (idx) async {
+          if (idx == 0) {
+            final created = await Navigator.push<bool>(
+              context,
+              _noAnimationRoute(const AddEmployeePage()),
+            );
+            if (created == true) {
+              _load();
+            }
+          } else if (idx == 2) {
+            _openSettings();
+          } else if (idx == 3) {
+            _confirmLogout();
+          }
+        },
         selectedItemColor: Colors.white,
         unselectedItemColor: Colors.white70,
         backgroundColor: Colors.blue[800],
@@ -101,6 +142,14 @@ class _HomePageState extends State<HomePage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.groups),
             label: 'Anggota',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Setting',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.logout),
+            label: 'Logout',
           ),
         ],
       ),
@@ -133,12 +182,48 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+
+  void _openSettings() {
+    Navigator.pushReplacement(
+      context,
+      _noAnimationRoute(const SettingsPage()),
+    );
+  }
+
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Konfirmasi Logout'),
+          content: const Text('Apakah Anda yakin ingin keluar?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout == true) {
+      await _authService.logout();
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+    }
+  }
 }
 
 class _EmployeeGrid extends StatelessWidget {
   final List<Map<String, dynamic>> employees;
+  final VoidCallback onRefresh;
 
-  const _EmployeeGrid({required this.employees});
+  const _EmployeeGrid({required this.employees, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
@@ -159,7 +244,21 @@ class _EmployeeGrid extends StatelessWidget {
         final emp = employees[index];
         final nama = emp['namaLengkap'] ?? 'Tanpa nama';
         final foto = emp['foto'] as String?;
-        return _EmployeeCard(name: nama.toString(), photoUrl: foto);
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => EmployeeDetailPage(employee: emp),
+              ),
+            ).then((value) {
+              if (value == true) {
+                onRefresh();
+              }
+            });
+          },
+          child: _EmployeeCard(name: nama.toString(), photoUrl: foto),
+        );
       },
     );
   }

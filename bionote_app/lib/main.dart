@@ -1,6 +1,7 @@
 import 'package:biodata_app/pages/home_page.dart';
 import 'package:biodata_app/pages/login_page.dart';
 import 'package:biodata_app/pages/register_page.dart';
+import 'package:biodata_app/pages/settings_page.dart';
 import 'package:flutter/material.dart';
 import 'splash_screen.dart';
 
@@ -25,6 +26,7 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
         '/home': (context) => const HomePage(),
+        '/settings': (context) => const SettingsPage(),
       },
     );
   }

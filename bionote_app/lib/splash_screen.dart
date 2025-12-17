@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:biodata_app/pages/login_page.dart';
+import 'package:biodata_app/pages/home_page.dart';
+
+import 'services/auth_service.dart';
 
 class SplashScreen extends StatefulWidget {
   @override
@@ -8,16 +11,27 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  final _authService = const AuthService();
+
   @override
   void initState() {
     super.initState();
-    // Timer untuk menavigasi ke LoginPage setelah 3 detik
-    Timer(Duration(seconds: 3), () {
-      // Menggunakan pushReplacement agar pengguna tidak bisa kembali ke splash screen
+    _checkSession();
+  }
+
+  Future<void> _checkSession() async {
+    await Future.delayed(const Duration(milliseconds: 600));
+    final user = await _authService.currentUser();
+    if (!mounted) return;
+    if (user != null) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    } else {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const LoginPage()),
       );
-    });
+    }
   }
 
   @override
