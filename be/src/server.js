@@ -1,14 +1,19 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const morgan = require("morgan");
 const routes = require("./routes");
 const prisma = require("./prismaClient");
+const { uploadsRoot, ensureDir } = require("./uploadConfig");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+app.use(morgan("combined"));
+ensureDir(uploadsRoot);
+app.use("/uploads", express.static(uploadsRoot));
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });

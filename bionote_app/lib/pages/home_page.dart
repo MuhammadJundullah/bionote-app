@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/employee_service.dart';
+import '../utils/image_url.dart';
 import 'add_employee_page.dart';
 import 'employee_detail_page.dart';
 import 'settings_page.dart';
@@ -20,6 +21,7 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _employees = [];
   bool _loading = true;
   String? _error;
+  String? _userId;
 
   @override
   void initState() {
@@ -33,8 +35,17 @@ class _HomePageState extends State<HomePage> {
       _error = null;
     });
     try {
-      final data = await _employeeService.fetchEmployees();
-      setState(() => _employees = data);
+      final user = await _authService.currentUser();
+      final uid = user?['id']?.toString();
+      if (uid == null) {
+        setState(() => _error = 'User tidak ditemukan, silakan login ulang');
+        return;
+      }
+      final data = await _employeeService.fetchEmployees(userId: uid);
+      setState(() {
+        _userId = uid;
+        _employees = data;
+      });
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -62,7 +73,10 @@ class _HomePageState extends State<HomePage> {
       final q = _searchController.text.toLowerCase();
       final nama = (emp['namaLengkap'] ?? '').toString().toLowerCase();
       final nik = (emp['nik'] ?? '').toString().toLowerCase();
-      return nama.contains(q) || nik.contains(q);
+      final belongsToUser = _userId == null ||
+          emp['createdById']?.toString() == _userId ||
+          emp['userId']?.toString() == _userId;
+      return belongsToUser && (nama.contains(q) || nik.contains(q));
     }).toList();
 
     return Scaffold(
@@ -272,6 +286,7 @@ class _EmployeeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final resolvedPhotoUrl = resolveImageUrl(photoUrl);
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Stack(
@@ -279,9 +294,9 @@ class _EmployeeCard extends StatelessWidget {
           Container(
             decoration: BoxDecoration(
               color: Colors.blueGrey.shade200,
-              image: photoUrl != null
+              image: resolvedPhotoUrl != null
                   ? DecorationImage(
-                      image: NetworkImage(photoUrl!),
+                      image: NetworkImage(resolvedPhotoUrl),
                       fit: BoxFit.cover,
                     )
                   : null,

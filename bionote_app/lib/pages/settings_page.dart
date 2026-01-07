@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../services/auth_service.dart';
+import '../utils/image_url.dart';
 import 'add_employee_page.dart';
 import 'home_page.dart';
 import 'login_page.dart';
@@ -23,6 +27,18 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _obscureNew = true;
   bool _obscureConfirm = true;
   bool _loading = false;
+  bool _photoLoading = false;
+  Uint8List? _pickedPhotoBytes;
+  String? _pickedPhotoName;
+  String? _pickedPhotoMimeType;
+  String? _currentPhotoPath;
+  String? _userId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
 
   @override
   void dispose() {
@@ -31,6 +47,16 @@ class _SettingsPageState extends State<SettingsPage> {
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUser() async {
+    final user = await _authService.currentUser();
+    if (!mounted || user == null) return;
+    setState(() {
+      _emailController.text = user['email']?.toString() ?? '';
+      _currentPhotoPath = user['foto']?.toString();
+      _userId = user['id']?.toString();
+    });
   }
 
   Future<void> _logout() async {
@@ -53,6 +79,54 @@ class _SettingsPageState extends State<SettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Pengaturan disimpan (placeholder, perlu API update password)')),
     );
+  }
+
+  Future<void> _pickPhoto() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    setState(() {
+      _pickedPhotoBytes = bytes;
+      _pickedPhotoName = picked.name;
+      _pickedPhotoMimeType = picked.mimeType;
+    });
+  }
+
+  Future<void> _uploadPhoto() async {
+    final userId = _userId;
+    if (userId == null || _pickedPhotoBytes == null || _pickedPhotoName == null) {
+      return;
+    }
+    setState(() => _photoLoading = true);
+    try {
+      final user = await _authService.uploadUserPhoto(
+        userId: userId,
+        bytes: _pickedPhotoBytes!,
+        filename: _pickedPhotoName!,
+        mimeType: _pickedPhotoMimeType,
+      );
+      if (!mounted) return;
+      setState(() {
+        _currentPhotoPath = user['foto']?.toString();
+        _pickedPhotoBytes = null;
+        _pickedPhotoName = null;
+        _pickedPhotoMimeType = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto profil diperbarui')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _photoLoading = false);
+    }
   }
 
   @override
@@ -78,6 +152,9 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _label('Foto profil'),
+              _photoSection(),
+              const SizedBox(height: 16),
               _label('Email'),
               _input(
                 controller: _emailController,
@@ -221,6 +298,54 @@ class _SettingsPageState extends State<SettingsPage> {
           color: Color(0xFF243141),
         ),
       ),
+    );
+  }
+
+  Widget _photoSection() {
+    final resolved = resolveImageUrl(_currentPhotoPath);
+    final hasPicked = _pickedPhotoBytes != null;
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 32,
+          backgroundColor: Colors.blueGrey.shade100,
+          backgroundImage: hasPicked
+              ? MemoryImage(_pickedPhotoBytes!)
+              : (resolved != null ? NetworkImage(resolved) : null) as ImageProvider<Object>?,
+          child: (!hasPicked && resolved == null)
+              ? const Icon(Icons.person, size: 32, color: Colors.grey)
+              : null,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Wrap(
+            spacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _photoLoading ? null : _pickPhoto,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Pilih foto'),
+              ),
+              if (hasPicked)
+                ElevatedButton.icon(
+                  onPressed: _photoLoading ? null : _uploadPhoto,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue[800]),
+                  icon: _photoLoading
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.cloud_upload, color: Colors.white),
+                  label: const Text('Upload', style: TextStyle(color: Colors.white)),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

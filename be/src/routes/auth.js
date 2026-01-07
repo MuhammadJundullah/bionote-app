@@ -20,7 +20,7 @@ router.post("/register", async (req, res) => {
         password: hashedPassword,
         role: role || "user",
       },
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, foto: true, createdAt: true },
     });
     return res.status(201).json(user);
   } catch (error) {
@@ -56,6 +56,7 @@ router.post("/login", async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      foto: user.foto,
     });
   } catch (error) {
     console.error("Login error", error);

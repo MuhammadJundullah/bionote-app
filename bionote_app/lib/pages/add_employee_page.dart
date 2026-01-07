@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../services/auth_service.dart';
 import '../services/employee_service.dart';
@@ -19,8 +22,10 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   final _tempatLahirController = TextEditingController();
   final _tanggalLahirController = TextEditingController();
   final _alamatController = TextEditingController();
-  final _fotoController = TextEditingController();
   String _jenisKelamin = 'L';
+  Uint8List? _pickedPhotoBytes;
+  String? _pickedPhotoName;
+  String? _pickedPhotoMimeType;
 
   final _employeeService = const EmployeeService();
   final _authService = const AuthService();
@@ -37,7 +42,6 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
     _tempatLahirController.dispose();
     _tanggalLahirController.dispose();
     _alamatController.dispose();
-    _fotoController.dispose();
     super.dispose();
   }
 
@@ -76,6 +80,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
     setState(() => _loading = true);
     try {
       final tanggal = DateTime.parse(_tanggalLahirController.text.trim());
+      final uid = currentUser['id'] as String;
       final employee = await _employeeService.createEmployee(
         nik: _nikController.text.trim(),
         namaLengkap: _namaController.text.trim(),
@@ -83,11 +88,20 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
         tanggalLahir: tanggal,
         jenisKelamin: _jenisKelamin,
         alamat: _alamatController.text.trim(),
-        foto: _fotoController.text.trim().isEmpty ? null : _fotoController.text.trim(),
-        createdById: currentUser['id'] as String,
+        createdById: uid,
+        userId: uid,
       );
 
       final employeeId = employee['id'] as String;
+      if (_pickedPhotoBytes != null && _pickedPhotoName != null) {
+        await _employeeService.uploadEmployeePhoto(
+          id: employeeId,
+          bytes: _pickedPhotoBytes!,
+          filename: _pickedPhotoName!,
+          mimeType: _pickedPhotoMimeType,
+          userId: uid,
+        );
+      }
       for (final edu in _educations) {
         await _employeeService.addEducation(
           employeeId: employeeId,
@@ -95,6 +109,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
           namaSekolah: edu.namaSekolah,
           tahunMasuk: edu.tahunMasuk,
           tahunLulus: edu.tahunLulus?.isNotEmpty == true ? edu.tahunLulus : null,
+          userId: uid,
         );
       }
       for (final job in _jobs) {
@@ -104,6 +119,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
           jabatan: job.jabatan,
           tahunMasuk: job.tahunMasuk,
           tahunKeluar: job.tahunKeluar?.isNotEmpty == true ? job.tahunKeluar : null,
+          userId: uid,
         );
       }
       for (final fam in _families) {
@@ -112,6 +128,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
           hubungan: fam.hubungan,
           nama: fam.nama,
           tanggalLahir: fam.tanggalLahir,
+          userId: uid,
         );
       }
 
@@ -128,6 +145,29 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _pickPhoto() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    setState(() {
+      _pickedPhotoBytes = bytes;
+      _pickedPhotoName = picked.name;
+      _pickedPhotoMimeType = picked.mimeType;
+    });
+  }
+
+  void _clearPhoto() {
+    setState(() {
+      _pickedPhotoBytes = null;
+      _pickedPhotoName = null;
+      _pickedPhotoMimeType = null;
+    });
   }
 
   @override
@@ -235,11 +275,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                   validator: (v) => v == null || v.trim().isEmpty ? 'Alamat wajib diisi' : null,
                 ),
                 const SizedBox(height: 12),
-                _label('Foto (URL)'),
-                _textField(
-                  controller: _fotoController,
-                  hint: 'https://example.com/foto.jpg',
-                ),
+                _label('Foto anggota'),
+                _photoPicker(),
                 const SizedBox(height: 20),
                 _sectionHeader('Pendidikan'),
                 _listSection(
@@ -384,6 +421,53 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
           color: Color(0xFF243141),
         ),
       ),
+    );
+  }
+
+  Widget _photoPicker() {
+    final hasPhoto = _pickedPhotoBytes != null;
+    return Row(
+      children: [
+        Container(
+          height: 96,
+          width: 96,
+          decoration: BoxDecoration(
+            color: Colors.blueGrey.shade50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.blueGrey.shade200),
+          ),
+          child: hasPhoto
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.memory(
+                    _pickedPhotoBytes!,
+                    fit: BoxFit.cover,
+                    width: 96,
+                    height: 96,
+                  ),
+                )
+              : const Icon(Icons.person, size: 48, color: Colors.blueGrey),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _loading ? null : _pickPhoto,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Pilih foto'),
+              ),
+              if (hasPhoto)
+                TextButton.icon(
+                  onPressed: _loading ? null : _clearPhoto,
+                  icon: const Icon(Icons.close, color: Colors.red),
+                  label: const Text('Hapus', style: TextStyle(color: Colors.red)),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

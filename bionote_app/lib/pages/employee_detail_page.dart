@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../services/employee_service.dart';
+import '../utils/image_url.dart';
 import 'edit_employee_page.dart';
 
 class EmployeeDetailPage extends StatelessWidget {
   final Map<String, dynamic> employee;
+  final _employeeService = const EmployeeService();
 
   const EmployeeDetailPage({super.key, required this.employee});
 
@@ -31,19 +34,37 @@ class EmployeeDetailPage extends StatelessWidget {
         ),
         centerTitle: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.edit, color: Colors.black87),
-            onPressed: () async {
-              final updated = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EditEmployeePage(employee: employee),
-                ),
-              );
-              if (updated == true && Navigator.canPop(context)) {
-                Navigator.pop(context, true);
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.black87),
+            onSelected: (value) {
+              if (value == 'edit') {
+                _goToEdit(context);
+              } else if (value == 'delete') {
+                _confirmDelete(context);
               }
             },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit, size: 18),
+                    SizedBox(width: 8),
+                    Text('Edit'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete, size: 18, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Delete'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -118,6 +139,61 @@ class EmployeeDetailPage extends StatelessWidget {
     );
   }
 
+  Future<void> _goToEdit(BuildContext context) async {
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditEmployeePage(employee: employee),
+      ),
+    );
+    if (updated == true && Navigator.canPop(context)) {
+      Navigator.pop(context, true);
+    }
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus anggota'),
+        content: const Text('Yakin ingin menghapus anggota ini?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true) return;
+
+    final id = employee['id']?.toString();
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ID anggota tidak ditemukan')),
+      );
+      return;
+    }
+
+    try {
+      final ownerId = employee['createdById']?.toString() ?? employee['userId']?.toString();
+      await _employeeService.deleteEmployee(id: id, userId: ownerId);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Anggota dihapus')),
+      );
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
   Widget _divider() => Divider(color: Colors.blueGrey.shade200);
 
   Widget _sectionTitle(String text) {
@@ -171,7 +247,8 @@ class EmployeeDetailPage extends StatelessWidget {
   }
 
   Widget _photo(String? url) {
-    if (url == null || url.isEmpty) {
+    final resolvedUrl = resolveImageUrl(url);
+    if (resolvedUrl == null || resolvedUrl.isEmpty) {
       return Container(
         height: 140,
         width: 140,
@@ -185,7 +262,7 @@ class EmployeeDetailPage extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Image.network(
-        url,
+        resolvedUrl,
         height: 140,
         width: 140,
         fit: BoxFit.cover,

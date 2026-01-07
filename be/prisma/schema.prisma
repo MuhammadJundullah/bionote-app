@@ -13,6 +13,7 @@ model User {
   email     String     @unique
   password  String
   role      String
+  foto      String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   employees Employee[]
@@ -23,6 +24,7 @@ model Employee {
   id            String       @id @default(uuid())
   userId        String?
   user          User?        @relation(fields: [userId], references: [id])
+  @@index([userId])
   nik           String       @unique
   namaLengkap   String
   tempatLahir   String

@@ -1,6 +1,11 @@
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../services/auth_service.dart';
 import '../services/employee_service.dart';
+import '../utils/image_url.dart';
 
 class EditEmployeePage extends StatefulWidget {
   final Map<String, dynamic> employee;
@@ -18,9 +23,14 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
   late final TextEditingController _tempatLahirController;
   late final TextEditingController _tanggalLahirController;
   late final TextEditingController _alamatController;
-  late final TextEditingController _fotoController;
   String _jenisKelamin = 'L';
+  String? _userId;
+  String? _currentPhotoPath;
+  Uint8List? _pickedPhotoBytes;
+  String? _pickedPhotoName;
+  String? _pickedPhotoMimeType;
 
+  final _authService = const AuthService();
   final _employeeService = const EmployeeService();
   bool _loading = false;
   final List<_EducationEntry> _educations = [];
@@ -40,7 +50,7 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           : '',
     );
     _alamatController = TextEditingController(text: emp['alamat'] ?? '');
-    _fotoController = TextEditingController(text: emp['foto'] ?? '');
+    _currentPhotoPath = emp['foto']?.toString();
     _jenisKelamin = (emp['jenisKelamin'] ?? 'L').toString();
     final pendidikan = (emp['pendidikan'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
     for (final p in pendidikan) {
@@ -86,7 +96,6 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
     _tempatLahirController.dispose();
     _tanggalLahirController.dispose();
     _alamatController.dispose();
-    _fotoController.dispose();
     super.dispose();
   }
 
@@ -114,6 +123,14 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    final uid = await _ensureUserId();
+    if (uid == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User tidak ditemukan, silakan login ulang')),
+      );
+      return;
+    }
     setState(() => _loading = true);
     try {
       await _employeeService.updateEmployee(
@@ -124,8 +141,17 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
         tanggalLahir: DateTime.parse(_tanggalLahirController.text.trim()),
         jenisKelamin: _jenisKelamin,
         alamat: _alamatController.text.trim(),
-        foto: _fotoController.text.trim().isEmpty ? null : _fotoController.text.trim(),
+        createdById: uid,
       );
+      if (_pickedPhotoBytes != null && _pickedPhotoName != null) {
+        await _employeeService.uploadEmployeePhoto(
+          id: widget.employee['id'] as String,
+          bytes: _pickedPhotoBytes!,
+          filename: _pickedPhotoName!,
+          mimeType: _pickedPhotoMimeType,
+          userId: uid,
+        );
+      }
       // Update additional relations (additions only)
       for (final edu in _educations.where((e) => e.id == null)) {
         await _employeeService.addEducation(
@@ -134,6 +160,7 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           namaSekolah: edu.namaSekolah,
           tahunMasuk: edu.tahunMasuk,
           tahunLulus: edu.tahunLulus?.isNotEmpty == true ? edu.tahunLulus : null,
+          userId: uid,
         );
       }
       for (final job in _jobs.where((e) => e.id == null)) {
@@ -143,6 +170,7 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           jabatan: job.jabatan,
           tahunMasuk: job.tahunMasuk,
           tahunKeluar: job.tahunKeluar?.isNotEmpty == true ? job.tahunKeluar : null,
+          userId: uid,
         );
       }
       for (final fam in _families.where((e) => e.id == null)) {
@@ -151,6 +179,7 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           hubungan: fam.hubungan,
           nama: fam.nama,
           tanggalLahir: fam.tanggalLahir,
+          userId: uid,
         );
       }
       if (!mounted) return;
@@ -166,6 +195,37 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<String?> _ensureUserId() async {
+    if (_userId != null) return _userId;
+    final user = await _authService.currentUser();
+    final uid = user?['id']?.toString();
+    if (uid != null) _userId = uid;
+    return uid;
+  }
+
+  Future<void> _pickPhoto() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    setState(() {
+      _pickedPhotoBytes = bytes;
+      _pickedPhotoName = picked.name;
+      _pickedPhotoMimeType = picked.mimeType;
+    });
+  }
+
+  void _clearPhoto() {
+    setState(() {
+      _pickedPhotoBytes = null;
+      _pickedPhotoName = null;
+      _pickedPhotoMimeType = null;
+    });
   }
 
   @override
@@ -275,11 +335,8 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
                 validator: (v) => v == null || v.trim().isEmpty ? 'Alamat wajib diisi' : null,
               ),
               const SizedBox(height: 12),
-              _label('Foto (URL)'),
-              _textField(
-                controller: _fotoController,
-                hint: 'https://example.com/foto.jpg',
-              ),
+              _label('Foto anggota'),
+              _photoPicker(),
               const SizedBox(height: 20),
               _sectionHeader('Pendidikan'),
               _listSection(
@@ -383,6 +440,69 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           color: Color(0xFF243141),
         ),
       ),
+    );
+  }
+
+  Widget _photoPicker() {
+    final hasPhoto = _pickedPhotoBytes != null;
+    final resolvedUrl = resolveImageUrl(_currentPhotoPath);
+    return Row(
+      children: [
+        Container(
+          height: 96,
+          width: 96,
+          decoration: BoxDecoration(
+            color: Colors.blueGrey.shade50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.blueGrey.shade200),
+          ),
+          child: hasPhoto
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.memory(
+                    _pickedPhotoBytes!,
+                    fit: BoxFit.cover,
+                    width: 96,
+                    height: 96,
+                  ),
+                )
+              : (resolvedUrl != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.network(
+                        resolvedUrl,
+                        fit: BoxFit.cover,
+                        width: 96,
+                        height: 96,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.broken_image,
+                          size: 40,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    )
+                  : const Icon(Icons.person, size: 48, color: Colors.blueGrey)),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _loading ? null : _pickPhoto,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Ganti foto'),
+              ),
+              if (hasPhoto)
+                TextButton.icon(
+                  onPressed: _loading ? null : _clearPhoto,
+                  icon: const Icon(Icons.close, color: Colors.red),
+                  label: const Text('Hapus', style: TextStyle(color: Colors.red)),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -559,6 +679,15 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           ElevatedButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
+              final uid = await _ensureUserId();
+              if (uid == null) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('User tidak ditemukan, silakan login ulang')),
+                  );
+                }
+                return;
+              }
               try {
                 final created = await _employeeService.addEducation(
                   employeeId: widget.employee['id'] as String,
@@ -566,6 +695,7 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
                   namaSekolah: sekolahCtrl.text.trim(),
                   tahunMasuk: masukCtrl.text.trim(),
                   tahunLulus: lulusCtrl.text.trim().isEmpty ? null : lulusCtrl.text.trim(),
+                  userId: uid,
                 );
                 setState(() {
                   _educations.add(
@@ -637,6 +767,15 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           ElevatedButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
+              final uid = await _ensureUserId();
+              if (uid == null) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('User tidak ditemukan, silakan login ulang')),
+                  );
+                }
+                return;
+              }
               try {
                 final created = await _employeeService.addJob(
                   employeeId: widget.employee['id'] as String,
@@ -644,6 +783,7 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
                   jabatan: jabatanCtrl.text.trim(),
                   tahunMasuk: masukCtrl.text.trim(),
                   tahunKeluar: keluarCtrl.text.trim().isEmpty ? null : keluarCtrl.text.trim(),
+                  userId: uid,
                 );
                 setState(() {
                   _jobs.add(
@@ -728,6 +868,15 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
           ElevatedButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
+              final uid = await _ensureUserId();
+              if (uid == null) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('User tidak ditemukan, silakan login ulang')),
+                  );
+                }
+                return;
+              }
               DateTime? tanggal;
               if (tanggalCtrl.text.trim().isNotEmpty) {
                 try {
@@ -745,6 +894,7 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
                   hubungan: hubunganCtrl.text.trim(),
                   nama: namaCtrl.text.trim(),
                   tanggalLahir: tanggal,
+                  userId: uid,
                 );
                 setState(() {
                   _families.add(
@@ -773,11 +923,19 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
   }
 
   Future<void> _deleteEducation(int index, _EducationEntry entry) async {
+    final uid = await _ensureUserId();
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User tidak ditemukan, silakan login ulang')),
+      );
+      return;
+    }
     if (entry.id != null) {
       try {
         await _employeeService.deleteEducation(
           employeeId: widget.employee['id'] as String,
           id: entry.id!,
+          userId: uid,
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -790,11 +948,19 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
   }
 
   Future<void> _deleteJob(int index, _JobEntry entry) async {
+    final uid = await _ensureUserId();
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User tidak ditemukan, silakan login ulang')),
+      );
+      return;
+    }
     if (entry.id != null) {
       try {
         await _employeeService.deleteJob(
           employeeId: widget.employee['id'] as String,
           id: entry.id!,
+          userId: uid,
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -807,11 +973,19 @@ class _EditEmployeePageState extends State<EditEmployeePage> {
   }
 
   Future<void> _deleteFamily(int index, _FamilyEntry entry) async {
+    final uid = await _ensureUserId();
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User tidak ditemukan, silakan login ulang')),
+      );
+      return;
+    }
     if (entry.id != null) {
       try {
         await _employeeService.deleteFamily(
           employeeId: widget.employee['id'] as String,
           id: entry.id!,
+          userId: uid,
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(

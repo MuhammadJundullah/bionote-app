@@ -1,8 +1,10 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const prisma = require("../prismaClient");
+const { makeUploader, buildPublicPath, removeLocalFile } = require("../uploadConfig");
 
 const router = express.Router();
+const uploadUserPhoto = makeUploader("users");
 
 router.get("/", async (_req, res) => {
   try {
@@ -13,6 +15,7 @@ router.get("/", async (_req, res) => {
         name: true,
         email: true,
         role: true,
+        foto: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -34,6 +37,7 @@ router.get("/:id", async (req, res) => {
         name: true,
         email: true,
         role: true,
+        foto: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -68,6 +72,7 @@ router.post("/", async (req, res) => {
         name: true,
         email: true,
         role: true,
+        foto: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -103,6 +108,7 @@ router.put("/:id", async (req, res) => {
         name: true,
         email: true,
         role: true,
+        foto: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -132,6 +138,50 @@ router.delete("/:id", async (req, res) => {
     }
     console.error("Delete user error", error);
     return res.status(500).json({ message: "Gagal menghapus user" });
+  }
+});
+
+router.post("/:id/photo", uploadUserPhoto.single("foto"), async (req, res) => {
+  const { id } = req.params;
+  const requesterId = req.header("x-user-id");
+
+  if (!requesterId || requesterId !== id) {
+    return res.status(403).json({ message: "Tidak boleh mengubah foto user lain" });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ message: "File foto wajib diupload" });
+  }
+
+  try {
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ message: "User tidak ditemukan" });
+    }
+
+    const newPhotoPath = buildPublicPath("users", req.file.filename);
+    const user = await prisma.user.update({
+      where: { id },
+      data: { foto: newPhotoPath },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        foto: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (existing.foto && existing.foto.startsWith("/uploads/")) {
+      removeLocalFile(existing.foto);
+    }
+
+    return res.json(user);
+  } catch (error) {
+    console.error("Upload user photo error", error);
+    return res.status(500).json({ message: "Gagal mengupload foto user" });
   }
 });
 
